@@ -37,27 +37,27 @@
 @implementation ImageResult
 @end
 
-@interface LabeledCropView : RSKImageCropViewController {
-}
-@property NSString *toolbarTitle;
-@property UILabel *_moveAndScaleLabel;
-- (UILabel *)moveAndScaleLabel;
-@end
-
-@implementation LabeledCropView
-    - (UILabel *)moveAndScaleLabel
-{
-    if (!self._moveAndScaleLabel) {
-        self._moveAndScaleLabel = [[UILabel alloc] init];
-        self._moveAndScaleLabel.backgroundColor = [UIColor clearColor];
-        self._moveAndScaleLabel.text = self.toolbarTitle;
-        self._moveAndScaleLabel.textColor = [UIColor whiteColor];
-        self._moveAndScaleLabel.translatesAutoresizingMaskIntoConstraints = NO;
-        self._moveAndScaleLabel.opaque = NO;
-    }
-    return self._moveAndScaleLabel;
-}
-@end
+//@interface LabeledCropView : RSKImageCropViewController {
+//}
+//@property NSString *toolbarTitle;
+//@property UILabel *_moveAndScaleLabel;
+//- (UILabel *)moveAndScaleLabel;
+//@end
+//
+//@implementation LabeledCropView
+//    - (UILabel *)moveAndScaleLabel
+//{
+//    if (!self._moveAndScaleLabel) {
+//        self._moveAndScaleLabel = [[UILabel alloc] init];
+//        self._moveAndScaleLabel.ba ckgroundColor = [UIColor clearColor];
+//        self._moveAndScaleLabel.text = self.toolbarTitle;
+//        self._moveAndScaleLabel.textColor = [UIColor whiteColor];
+//        self._moveAndScaleLabel.translatesAutoresizingMaskIntoConstraints = NO;
+//        self._moveAndScaleLabel.opaque = NO;
+//    }
+//    return self._moveAndScaleLabel;
+//}
+//@end
 
 @implementation ImageCropPicker
 
@@ -170,7 +170,7 @@ RCT_EXPORT_METHOD(openCamera:(NSDictionary *)options
 
         UIImagePickerController *picker = [[UIImagePickerController alloc] init];
         picker.delegate = self;
-        picker.allowsEditing = NO;
+        picker.allowsEditing = true;
         picker.sourceType = UIImagePickerControllerSourceTypeCamera;
         if ([[self.options objectForKey:@"useFrontCamera"] boolValue]) {
             picker.cameraDevice = UIImagePickerControllerCameraDeviceFront;
@@ -358,13 +358,13 @@ RCT_EXPORT_METHOD(openCropper:(NSDictionary *)options
 }
 
 - (void)startCropping:(UIImage *)image {
-    LabeledCropView *imageCropVC = [[LabeledCropView alloc] initWithImage:image];
+    NSInteger cropStyle = TOCropViewCroppingStyleDefault;
     if ([[[self options] objectForKey:@"cropperCircleOverlay"] boolValue]) {
-        imageCropVC.cropMode = RSKImageCropModeCircle;
-    } else {
-        imageCropVC.cropMode = RSKImageCropModeCustom;
+        cropStyle = TOCropViewCroppingStyleCircular;
     }
-    imageCropVC.toolbarTitle = [[self options] objectForKey:@"cropperToolbarTitle"];
+    TOCropViewController *imageCropVC = [[TOCropViewController alloc] initWithCroppingStyle:cropStyle image:image];
+    imageCropVC.delegate = self;
+    /*imageCropVC.toolbarTitle = [[self options] objectForKey:@"cropperToolbarTitle"];
     imageCropVC.avoidEmptySpaceAroundImage = [[[self options] objectForKey:@"avoidEmptySpaceAroundImage"] boolValue];
     imageCropVC.dataSource = self;
     imageCropVC.delegate = self;
@@ -373,7 +373,7 @@ RCT_EXPORT_METHOD(openCropper:(NSDictionary *)options
     [imageCropVC setModalPresentationStyle:UIModalPresentationCustom];
     [imageCropVC setModalTransitionStyle:UIModalTransitionStyleCrossDissolve];
     [imageCropVC.cancelButton setTitle:cropperCancelText forState:UIControlStateNormal];
-    [imageCropVC.chooseButton setTitle:cropperChooseText forState:UIControlStateNormal];
+    [imageCropVC.chooseButton setTitle:cropperChooseText forState:UIControlStateNormal];*/
     dispatch_async(dispatch_get_main_queue(), ^{
         [[self getRootVC] presentViewController:imageCropVC animated:YES completion:nil];
     });
@@ -753,6 +753,8 @@ RCT_EXPORT_METHOD(openCropper:(NSDictionary *)options
 
 #pragma mark - CustomCropModeDelegates
 
+// i need a way to change these datasource methods
+/*
 // Returns a custom rect for the mask.
 - (CGRect)imageCropViewControllerCustomMaskRect:
 (RSKImageCropViewController *)controller {
@@ -801,20 +803,69 @@ RCT_EXPORT_METHOD(openCropper:(NSDictionary *)options
 (RSKImageCropViewController *)controller {
     return [self scaleRect:controller];
 }
+ 
+ */
 
 #pragma mark - CropFinishDelegate
 
 // Crop image has been canceled.
-- (void)imageCropViewControllerDidCancelCrop:
-(RSKImageCropViewController *)controller {
-    [self dismissCropper:controller selectionDone:NO completion:[self waitAnimationEnd:^{
-        if (self.currentSelectionMode == CROPPING) {
-            self.reject(ERROR_PICKER_CANCEL_KEY, ERROR_PICKER_CANCEL_MSG, nil);
-        }
+- (void)cropViewController:(nonnull TOCropViewController *)cropViewController didFinishCancelled:(BOOL)cancelled {
+    [self dismissCropper:cropViewController selectionDone:NO
+              completion:^{
+                  if (cancelled) {
+                      if (self.currentSelectionMode == CROPPING) {
+                          self.reject(ERROR_PICKER_CANCEL_KEY, ERROR_PICKER_CANCEL_MSG, nil);
+                      }
+                  }
+              }];
+}
+
+
+// The original image has been cropped. Additionally provides a rotation angle
+// used to produce image.
+- (void)cropViewController:(TOCropViewController *)cropViewController didCropToImage:(UIImage *)image withRect:(CGRect)cropRect angle:(NSInteger)angle
+{
+    // we have correct rect, but not correct dimensions
+    // so resize image
+    CGSize resizedImageSize = CGSizeMake([[[self options] objectForKey:@"width"] intValue], [[[self options] objectForKey:@"height"] intValue]);
+    UIImage *resizedImage = [image resizedImageToFitInSize:resizedImageSize scaleIfSmaller:YES];
+    ImageResult *imageResult = [self.compression compressImage:resizedImage withOptions:self.options];
+    
+    NSString *filePath = [self persistFile:imageResult.data];
+    if (filePath == nil) {
+        [self dismissCropper:cropViewController selectionDone:YES completion:[self waitAnimationEnd:^{
+            self.reject(ERROR_CANNOT_SAVE_IMAGE_KEY, ERROR_CANNOT_SAVE_IMAGE_MSG, nil);
+        }]];
+        return;
+    }
+    
+    NSDictionary* exif = nil;
+    if([[self.options objectForKey:@"includeExif"] boolValue]) {
+        exif = [[CIImage imageWithData:imageResult.data] properties];
+    }
+    
+    [self dismissCropper:cropViewController selectionDone:YES completion:[self waitAnimationEnd:^{
+        self.resolve([self createAttachmentResponse:filePath
+                                           withExif: exif
+                                      withSourceURL: self.croppingFile[@"sourceURL"]
+                                withLocalIdentifier: self.croppingFile[@"localIdentifier"]
+                                       withFilename: self.croppingFile[@"filename"]
+                                          withWidth:imageResult.width
+                                         withHeight:imageResult.height
+                                           withMime:imageResult.mime
+                                           withSize:[NSNumber numberWithUnsignedInteger:imageResult.data.length]
+                                           withData:[[self.options objectForKey:@"includeBase64"] boolValue] ? [imageResult.data base64EncodedStringWithOptions:0] : nil
+                                           withRect:cropRect
+                                   withCreationDate:self.croppingFile[@"creationDate"]
+                               withModificationDate:self.croppingFile[@"modificationDate"]
+                      ]);
     }]];
 }
 
-- (void) dismissCropper:(RSKImageCropViewController*)controller selectionDone:(BOOL)selectionDone completion:(void (^)())completion {
+
+
+
+- (void) dismissCropper:(TOCropViewController*)controller selectionDone:(BOOL)selectionDone completion:(void (^)())completion {
     switch (self.currentSelectionMode) {
         case CROPPING:
             [controller dismissViewControllerAnimated:YES completion:completion];
@@ -834,43 +885,6 @@ RCT_EXPORT_METHOD(openCropper:(NSDictionary *)options
     }
 }
 
-// The original image has been cropped.
-- (void)imageCropViewController:(RSKImageCropViewController *)controller
-                   didCropImage:(UIImage *)croppedImage
-                  usingCropRect:(CGRect)cropRect {
-
-    ImageResult *imageResult = [self.compression compressImage:croppedImage withOptions:self.options];
-
-    NSString *filePath = [self persistFile:imageResult.data];
-    if (filePath == nil) {
-        [self dismissCropper:controller selectionDone:YES completion:[self waitAnimationEnd:^{
-            self.reject(ERROR_CANNOT_SAVE_IMAGE_KEY, ERROR_CANNOT_SAVE_IMAGE_MSG, nil);
-        }]];
-        return;
-    }
-
-    NSDictionary* exif = nil;
-    if([[self.options objectForKey:@"includeExif"] boolValue]) {
-        exif = [[CIImage imageWithData:imageResult.data] properties];
-    }
-
-    [self dismissCropper:controller selectionDone:YES completion:[self waitAnimationEnd:^{
-        self.resolve([self createAttachmentResponse:filePath
-                                           withExif: exif
-                                      withSourceURL: self.croppingFile[@"sourceURL"]
-                                withLocalIdentifier: self.croppingFile[@"localIdentifier"]
-                                       withFilename: self.croppingFile[@"filename"]
-                                          withWidth:imageResult.width
-                                         withHeight:imageResult.height
-                                           withMime:imageResult.mime
-                                           withSize:[NSNumber numberWithUnsignedInteger:imageResult.data.length]
-                                           withData:[[self.options objectForKey:@"includeBase64"] boolValue] ? [imageResult.data base64EncodedStringWithOptions:0] : nil
-                                           withRect:cropRect
-                                   withCreationDate:self.croppingFile[@"creationDate"]
-                               withModificationDate:self.croppingFile[@"modificationDate"]
-                      ]);
-    }]];
-}
 
 // at the moment it is not possible to upload image by reading PHAsset
 // we are saving image and saving it to the tmp location where we are allowed to access image later
@@ -888,17 +902,6 @@ RCT_EXPORT_METHOD(openCropper:(NSDictionary *)options
 
     return filePath;
 }
-
-// The original image has been cropped. Additionally provides a rotation angle
-// used to produce image.
-- (void)imageCropViewController:(RSKImageCropViewController *)controller
-                   didCropImage:(UIImage *)croppedImage
-                  usingCropRect:(CGRect)cropRect
-                  rotationAngle:(CGFloat)rotationAngle {
-    [self imageCropViewController:controller didCropImage:croppedImage usingCropRect:cropRect];
-}
-
-
 
 + (NSDictionary *)cgRectToDictionary:(CGRect)rect {
     return @{
