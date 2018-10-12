@@ -812,7 +812,7 @@ RCT_EXPORT_METHOD(openCropper:(NSDictionary *)options
     [self dismissCropper:cropViewController selectionDone:NO
               completion:^{
                   if (cancelled) {
-                      if (self.currentSelectionMode == CROPPING) {
+                      if (self.currentSelectionMode == CROPPING || self.currentSelectionMode == CAMERA) {
                           self.reject(ERROR_PICKER_CANCEL_KEY, ERROR_PICKER_CANCEL_MSG, nil);
                       }
                   }
@@ -826,9 +826,9 @@ RCT_EXPORT_METHOD(openCropper:(NSDictionary *)options
 {
     // we have correct rect, but not correct dimensions
     // so resize image
-    CGSize resizedImageSize = CGSizeMake([[[self options] objectForKey:@"width"] intValue], [[[self options] objectForKey:@"height"] intValue]);
-    UIImage *resizedImage = [image resizedImageToFitInSize:resizedImageSize scaleIfSmaller:YES];
-    ImageResult *imageResult = [self.compression compressImage:resizedImage withOptions:self.options];
+    // CGSize resizedImageSize = CGSizeMake([[[self options] objectForKey:@"width"] intValue], [[[self options] objectForKey:@"height"] intValue]);
+    // UIImage *resizedImage = [image resizedImageToFitInSize:resizedImageSize scaleIfSmaller:YES];
+    ImageResult *imageResult = [self.compression compressImage:image withOptions:self.options];
     
     NSString *filePath = [self persistFile:imageResult.data];
     if (filePath == nil) {
