@@ -1,11 +1,3 @@
-//
-//  UIImage+UIImage_RSKImageCropper.m
-//  imageCropPicker
-//
-//  Created by Giuseppe Silvestri on 25/09/18.
-//  Copyright © 2018 Ivan Pusic. All rights reserved.
-//
-
 #import "UIImage+UIImage_RSKImageCropper.h"
 
 @implementation UIImage (UIImage_RSKImageCropper)
